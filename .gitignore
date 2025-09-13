@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+.pnpm-debug.log*
+
+# Production builds
+dist/
+dist-ssr/
+*.local
+
+# Environment variables (IMPORTANT!)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+lerna-debug.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# IDE files
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS generated files
+Thumbs.db
+
+# Firebase
+.firebase/
+firebase-debug.log
+firestore-debug.log
