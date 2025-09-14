@@ -1,8 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import { TrendingUp, Upload, Database, Loader2, CheckCircle, AlertCircle, FileText, MessageCircle, Send, Bot, User } from 'lucide-react';
+import { TrendingUp, Upload, Database, Loader2, CheckCircle, AlertCircle, FileText, MessageCircle, Send, Bot, User, BarChart3, Download } from 'lucide-react';
 import { auth, db } from './firebase';
 import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  PieChart,
+  Pie,
+  Cell,
+  ScatterChart,
+  Scatter,
+  AreaChart,
+  Area
+} from 'recharts';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -15,6 +33,7 @@ function App() {
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [visualizations, setVisualizations] = useState([]);
 
   // Authentication effect
   useEffect(() => {
@@ -38,12 +57,20 @@ function App() {
     return () => unsubscribe();
   }, []);
 
-  // Set current dataset when datasets change
+  // Set current dataset and generate visualizations
   useEffect(() => {
     if (datasets.length > 0 && !currentDataset) {
       setCurrentDataset(datasets[0]);
     }
   }, [datasets, currentDataset]);
+
+  // Generate automatic visualizations when dataset changes
+  useEffect(() => {
+    if (currentDataset) {
+      const autoVisualizations = generateAutomaticVisualizations(currentDataset);
+      setVisualizations(autoVisualizations);
+    }
+  }, [currentDataset]);
 
   // Add welcome message when dataset is selected
   useEffect(() => {
@@ -51,76 +78,54 @@ function App() {
       const welcomeMessage = {
         id: Date.now(),
         type: 'ai',
-        content: `I can see you've uploaded "${currentDataset.name}" with ${currentDataset.rowCount} rows and ${currentDataset.columnCount} columns. I'm ready to help you analyze this data!
+        content: `I can see you've uploaded "${currentDataset.name}" with ${currentDataset.rowCount} rows and ${currentDataset.columnCount} columns. I've automatically generated visualizations and I'm ready to provide real AI-powered analysis of your data!
 
 You can ask me things like:
-- "What patterns do you see in this data?"
-- "Show me insights about the sales trends"
-- "Which region performs best?"
-- "What are the key findings?"
+- "What insights do you see in this data?"
+- "Analyze the regional performance patterns"
+- "What trends are most significant?"
+- "What recommendations do you have?"
 
-What would you like to explore first?`,
+I'll analyze your actual data and provide specific insights. What would you like to explore?`,
         timestamp: new Date()
       };
       setChatMessages([welcomeMessage]);
     }
   }, [currentDataset, chatMessages.length]);
 
-  // Demo AI responses
-  const getDemoResponse = (message, dataContext) => {
-    const msg = message.toLowerCase();
-    const dataName = dataContext?.name || 'your dataset';
-    const rowCount = dataContext?.rowCount || 0;
-    const columnCount = dataContext?.columnCount || 0;
-    
-    if (msg.includes('pattern') || msg.includes('see')) {
-      return `Looking at "${dataName}" with ${rowCount} rows and ${columnCount} columns, I can see several interesting patterns:
+  // Real Claude API call through Netlify function
+  const callRealClaudeAPI = async (message, dataContext) => {
+    try {
+      const apiUrl = process.env.NODE_ENV === 'development' 
+        ? 'http://localhost:8888/.netlify/functions/analyze-data'
+        : '/.netlify/functions/analyze-data';
 
-- Sales Performance: Different widgets show varying performance levels
-- Regional Trends: Some regions appear to outperform others
-- Revenue Patterns: There's significant variation in daily revenue
-- Product Mix: Your products have different revenue-per-unit ratios
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message,
+          dataContext
+        })
+      });
 
-The data suggests opportunities for optimization in both product focus and regional strategy.`;
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.response;
+
+    } catch (error) {
+      console.error('Real AI API error:', error);
+      return `I'm having trouble connecting to the AI service: ${error.message}. This could be because the Netlify functions aren't deployed yet or there's a configuration issue.`;
     }
-    
-    if (msg.includes('trend') || msg.includes('sales')) {
-      return `Sales trends analysis for "${dataName}":
-
-- Daily sales volumes vary significantly 
-- Revenue patterns show both high and low performing days
-- Different products contribute varying amounts to total revenue
-- Regional performance shows interesting variations
-
-Consider focusing on your highest-performing product/region combinations for growth.`;
-    }
-    
-    if (msg.includes('region') || msg.includes('best')) {
-      return `Regional performance insights:
-
-Based on your ${rowCount} data points, I can see variations in regional performance. Some regions consistently generate higher revenue per transaction, while others may have volume advantages.
-
-This suggests opportunities for:
-- Regional strategy optimization
-- Product mix adjustments by region  
-- Targeted marketing approaches
-
-Which specific region would you like me to analyze further?`;
-    }
-    
-    return `I'm analyzing your "${dataName}" dataset with ${rowCount} rows and ${columnCount} columns. 
-
-To provide more specific insights, try asking:
-- "What are the sales trends?"
-- "Which region performs best?"  
-- "Show me key insights"
-- "What patterns do you see?"
-
-What specific aspect would you like me to explore?`;
   };
 
-  // Handle chat submission
-  const handleChatSubmit = () => {
+  // Handle chat submission with real AI
+  const handleChatSubmit = async () => {
     if (!chatInput.trim() || isChatLoading) return;
 
     const userMessage = {
@@ -135,9 +140,8 @@ What specific aspect would you like me to explore?`;
     setChatInput('');
     setIsChatLoading(true);
 
-    // Simulate AI processing delay
-    setTimeout(() => {
-      const aiResponse = getDemoResponse(currentInput, currentDataset);
+    try {
+      const aiResponse = await callRealClaudeAPI(currentInput, currentDataset);
       
       const aiMessage = {
         id: Date.now() + 1,
@@ -147,8 +151,147 @@ What specific aspect would you like me to explore?`;
       };
 
       setChatMessages(prev => [...prev, aiMessage]);
+    } catch (error) {
+      const errorMessage = {
+        id: Date.now() + 1,
+        type: 'error',
+        content: `Error: ${error.message}`,
+        timestamp: new Date()
+      };
+      setChatMessages(prev => [...prev, errorMessage]);
+    } finally {
       setIsChatLoading(false);
-    }, 1500);
+    }
+  };
+
+  // Automatic visualization generation
+  const generateAutomaticVisualizations = (dataset) => {
+    if (!dataset || !dataset.data || dataset.data.length === 0) return [];
+
+    const data = dataset.data;
+    const sampleRow = data[0];
+    const columns = Object.keys(sampleRow).filter(key => key !== '_rowIndex');
+    
+    const visualizations = [];
+    
+    // Detect column types
+    const numericColumns = [];
+    const categoricalColumns = [];
+    const dateColumns = [];
+    
+    columns.forEach(col => {
+      const sampleValues = data.slice(0, 5).map(row => row[col]);
+      const numericValues = sampleValues.filter(val => !isNaN(parseFloat(val)) && isFinite(val));
+      const uniqueValues = [...new Set(sampleValues)];
+      
+      if (numericValues.length >= 3) {
+        numericColumns.push(col);
+      } else if (uniqueValues.length <= Math.min(10, data.length * 0.7)) {
+        categoricalColumns.push(col);
+      } else if (sampleValues.some(val => !isNaN(Date.parse(val)))) {
+        dateColumns.push(col);
+      }
+    });
+
+    // Generate bar chart for categorical vs numeric data
+    if (categoricalColumns.length > 0 && numericColumns.length > 0) {
+      const categoricalCol = categoricalColumns[0];
+      const numericCol = numericColumns[0];
+      
+      // Aggregate data by category
+      const aggregated = data.reduce((acc, row) => {
+        const category = row[categoricalCol];
+        const value = parseFloat(row[numericCol]) || 0;
+        acc[category] = (acc[category] || 0) + value;
+        return acc;
+      }, {});
+
+      const chartData = Object.entries(aggregated)
+        .map(([key, value]) => ({ [categoricalCol]: key, [numericCol]: value }))
+        .sort((a, b) => b[numericCol] - a[numericCol])
+        .slice(0, 10);
+
+      visualizations.push({
+        id: 'auto-bar-1',
+        type: 'bar',
+        title: `${numericCol} by ${categoricalCol}`,
+        data: chartData,
+        xAxis: categoricalCol,
+        yAxis: numericCol
+      });
+    }
+
+    // Generate line chart for time series data
+    if (dateColumns.length > 0 && numericColumns.length > 0) {
+      const dateCol = dateColumns[0];
+      const numericCol = numericColumns[0];
+      
+      const timeSeriesData = data
+        .filter(row => row[dateCol] && row[numericCol])
+        .map(row => ({
+          [dateCol]: row[dateCol],
+          [numericCol]: parseFloat(row[numericCol]) || 0
+        }))
+        .sort((a, b) => new Date(a[dateCol]) - new Date(b[dateCol]));
+
+      if (timeSeriesData.length > 1) {
+        visualizations.push({
+          id: 'auto-line-1',
+          type: 'line',
+          title: `${numericCol} Over Time`,
+          data: timeSeriesData.slice(0, 50),
+          xAxis: dateCol,
+          yAxis: numericCol
+        });
+      }
+    }
+
+    // Generate pie chart for categorical data distribution
+    if (categoricalColumns.length > 0) {
+      const categoricalCol = categoricalColumns[0];
+      const distribution = data.reduce((acc, row) => {
+        const category = row[categoricalCol];
+        acc[category] = (acc[category] || 0) + 1;
+        return acc;
+      }, {});
+
+      const pieData = Object.entries(distribution)
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 8);
+
+      visualizations.push({
+        id: 'auto-pie-1',
+        type: 'pie',
+        title: `Distribution of ${categoricalCol}`,
+        data: pieData
+      });
+    }
+
+    // Generate scatter plot for numeric correlations
+    if (numericColumns.length >= 2) {
+      const xCol = numericColumns[0];
+      const yCol = numericColumns[1];
+      
+      const scatterData = data
+        .filter(row => row[xCol] && row[yCol])
+        .map(row => ({
+          [xCol]: parseFloat(row[xCol]) || 0,
+          [yCol]: parseFloat(row[yCol]) || 0
+        }))
+        .slice(0, 100);
+
+      visualizations.push({
+        id: 'auto-scatter-1',
+        type: 'scatter',
+        title: `${xCol} vs ${yCol}`,
+        data: scatterData,
+        xAxis: xCol,
+        yAxis: yCol
+      });
+    }
+
+    return visualizations;
   };
 
   // File processing function
@@ -225,7 +368,7 @@ What specific aspect would you like me to explore?`;
       };
 
       setDatasets(prev => [newDataset, ...prev]);
-      setChatMessages([]); // Reset chat for new dataset
+      setChatMessages([]);
 
       setTimeout(() => setUploadProgress(null), 2000);
 
@@ -263,6 +406,122 @@ What specific aspect would you like me to explore?`;
     }
   };
 
+  // CSV Export function
+  const exportToCSV = () => {
+    if (!currentDataset) return;
+
+    const csvContent = "data:text/csv;charset=utf-8,";
+    const headers = Object.keys(currentDataset.data[0]).filter(key => key !== '_rowIndex');
+    const rows = [
+      headers.join(','),
+      ...currentDataset.data.map(row => 
+        headers.map(header => row[header]).join(',')
+      )
+    ];
+    
+    const csv = csvContent + rows.join('\n');
+    const encodedUri = encodeURI(csv);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `${currentDataset.name}-export.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Visualization component
+  const VisualizationChart = ({ viz }) => {
+    const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D', '#FFC658', '#FF7300'];
+
+    const renderChart = () => {
+      switch (viz.type) {
+        case 'bar':
+          return (
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={viz.data}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey={viz.xAxis} angle={-45} textAnchor="end" height={80} />
+                <YAxis />
+                <Tooltip />
+                <Bar dataKey={viz.yAxis} fill="#3B82F6" />
+              </BarChart>
+            </ResponsiveContainer>
+          );
+          
+        case 'line':
+          return (
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={viz.data}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey={viz.xAxis} />
+                <YAxis />
+                <Tooltip />
+                <Line type="monotone" dataKey={viz.yAxis} stroke="#3B82F6" strokeWidth={2} />
+              </LineChart>
+            </ResponsiveContainer>
+          );
+          
+        case 'pie':
+          return (
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie
+                  data={viz.data}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={false}
+                  label={({name, percent}) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  outerRadius={80}
+                  fill="#8884d8"
+                  dataKey="value"
+                >
+                  {viz.data.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          );
+          
+        case 'scatter':
+          return (
+            <ResponsiveContainer width="100%" height={300}>
+              <ScatterChart data={viz.data}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey={viz.xAxis} />
+                <YAxis dataKey={viz.yAxis} />
+                <Tooltip />
+                <Scatter dataKey={viz.yAxis} fill="#3B82F6" />
+              </ScatterChart>
+            </ResponsiveContainer>
+          );
+          
+        default:
+          return <div>Chart type not supported</div>;
+      }
+    };
+
+    return (
+      <div className="bg-white p-4 rounded-lg border">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold">{viz.title}</h3>
+          <button
+            onClick={() => {/* TODO: Add chart image export */}}
+            className="text-gray-500 hover:text-blue-600"
+          >
+            <Download className="h-4 w-4" />
+          </button>
+        </div>
+        {renderChart()}
+        <div className="mt-2 text-xs text-gray-500">
+          Data points: {viz.data?.length || 0}
+        </div>
+      </div>
+    );
+  };
+
+  // Loading and error states
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
@@ -308,11 +567,20 @@ What specific aspect would you like me to explore?`;
             <div className="flex items-center space-x-3">
               <TrendingUp className="h-6 w-6 text-blue-600" />
               <h1 className="text-xl font-bold text-gray-900">InsightFlow AI</h1>
-              <span className="text-sm bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
-                Beta
+              <span className="text-sm bg-green-100 text-green-800 px-2 py-1 rounded-full">
+                Real AI
               </span>
             </div>
             <div className="flex items-center space-x-4">
+              {currentDataset && (
+                <button
+                  onClick={exportToCSV}
+                  className="flex items-center space-x-1 bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700 transition-colors"
+                >
+                  <Download className="h-3 w-3" />
+                  <span>Export CSV</span>
+                </button>
+              )}
               <div className="flex items-center space-x-2">
                 <CheckCircle className="h-4 w-4 text-green-500" />
                 <span className="text-sm text-gray-600">Connected</span>
@@ -327,14 +595,14 @@ What specific aspect would you like me to explore?`;
 
       <div className="max-w-7xl mx-auto px-4 py-6">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Upload Section */}
-          <div className="lg:col-span-4">
+          {/* Upload Section - Smaller */}
+          <div className="lg:col-span-3">
             <div className="bg-white rounded-lg shadow border">
-              <div className="p-6">
-                <h2 className="text-lg font-semibold mb-4">Upload Your Data</h2>
+              <div className="p-4">
+                <h2 className="text-lg font-semibold mb-4">Upload Data</h2>
                 
                 <div 
-                  className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                  className={`border-2 border-dashed rounded-lg p-4 text-center transition-colors ${
                     dragActive 
                       ? 'border-blue-500 bg-blue-50' 
                       : 'border-gray-300 hover:border-gray-400'
@@ -344,10 +612,7 @@ What specific aspect would you like me to explore?`;
                   onDragOver={handleDrag}
                   onDrop={handleDrop}
                 >
-                  <Upload className="h-10 w-10 text-gray-400 mx-auto mb-3" />
-                  <h3 className="font-medium text-gray-900 mb-2">
-                    Drop your data file here
-                  </h3>
+                  <Upload className="h-8 w-8 text-gray-400 mx-auto mb-2" />
                   <input
                     type="file"
                     accept=".csv,.json,.txt"
@@ -357,17 +622,17 @@ What specific aspect would you like me to explore?`;
                   />
                   <label
                     htmlFor="file-upload"
-                    className="bg-blue-600 text-white px-4 py-2 rounded-lg cursor-pointer hover:bg-blue-700 transition-colors text-sm"
+                    className="bg-blue-600 text-white px-3 py-2 rounded cursor-pointer hover:bg-blue-700 transition-colors text-sm"
                   >
                     Choose File
                   </label>
-                  <p className="text-xs text-gray-500 mt-2">
+                  <p className="text-xs text-gray-500 mt-1">
                     CSV, JSON (Max: 10MB)
                   </p>
                 </div>
 
                 {uploadProgress && (
-                  <div className="mt-4 p-3 rounded-lg bg-gray-50">
+                  <div className="mt-3 p-3 rounded-lg bg-gray-50">
                     <div className="flex items-center space-x-2 mb-2">
                       {uploadProgress.status === 'error' ? (
                         <AlertCircle className="h-4 w-4 text-red-500" />
@@ -379,7 +644,7 @@ What specific aspect would you like me to explore?`;
                       </span>
                     </div>
                     {uploadProgress.status === 'error' ? (
-                      <p className="text-red-600 text-sm">{uploadProgress.message}</p>
+                      <p className="text-red-600 text-xs">{uploadProgress.message}</p>
                     ) : (
                       <div className="w-full bg-gray-200 rounded-full h-2">
                         <div 
@@ -394,22 +659,22 @@ What specific aspect would you like me to explore?`;
             </div>
 
             {/* Datasets List */}
-            <div className="bg-white rounded-lg shadow border mt-6">
-              <div className="p-4 border-b">
-                <h2 className="font-semibold">Your Datasets</h2>
+            <div className="bg-white rounded-lg shadow border mt-4">
+              <div className="p-3 border-b">
+                <h2 className="font-semibold text-sm">Your Datasets</h2>
               </div>
-              <div className="p-4">
+              <div className="p-3">
                 {datasets.length === 0 ? (
-                  <div className="text-center py-6">
-                    <Database className="h-10 w-10 text-gray-400 mx-auto mb-3" />
-                    <p className="text-gray-500 text-sm">No datasets uploaded yet</p>
+                  <div className="text-center py-4">
+                    <Database className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                    <p className="text-gray-500 text-xs">No datasets uploaded yet</p>
                   </div>
                 ) : (
                   <div className="space-y-2">
                     {datasets.map((dataset) => (
                       <div 
                         key={dataset.id} 
-                        className={`p-3 border rounded-lg cursor-pointer transition-colors ${
+                        className={`p-2 border rounded cursor-pointer transition-colors ${
                           currentDataset?.id === dataset.id 
                             ? 'border-blue-300 bg-blue-50' 
                             : 'border-gray-200 hover:border-gray-300'
@@ -417,9 +682,9 @@ What specific aspect would you like me to explore?`;
                         onClick={() => setCurrentDataset(dataset)}
                       >
                         <div className="flex items-start space-x-2">
-                          <FileText className="h-4 w-4 text-blue-500 mt-0.5" />
+                          <FileText className="h-3 w-3 text-blue-500 mt-0.5" />
                           <div className="flex-1 min-w-0">
-                            <h3 className="font-medium text-sm truncate">{dataset.name}</h3>
+                            <h3 className="font-medium text-xs truncate">{dataset.name}</h3>
                             <p className="text-xs text-gray-500">
                               {dataset.rowCount} rows × {dataset.columnCount} cols
                             </p>
@@ -433,13 +698,31 @@ What specific aspect would you like me to explore?`;
             </div>
           </div>
 
-          {/* AI Chat Section */}
-          <div className="lg:col-span-8">
-            <div className="bg-white rounded-lg shadow border h-96 flex flex-col">
+          {/* Main Content - Larger */}
+          <div className="lg:col-span-9">
+            {/* Visualizations Section */}
+            {visualizations.length > 0 && (
+              <div className="mb-6">
+                <div className="flex items-center space-x-2 mb-4">
+                  <BarChart3 className="h-5 w-5 text-blue-600" />
+                  <h2 className="text-xl font-bold text-gray-900">Data Visualizations</h2>
+                  <span className="text-sm text-gray-500">({visualizations.length} charts)</span>
+                </div>
+                
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {visualizations.map((viz) => (
+                    <VisualizationChart key={viz.id} viz={viz} />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* AI Chat Section */}
+            <div className="bg-white rounded-lg shadow border h-80 flex flex-col">
               <div className="p-4 border-b">
                 <div className="flex items-center space-x-2">
                   <Bot className="h-5 w-5 text-blue-600" />
-                  <h2 className="font-semibold">AI Data Analyst</h2>
+                  <h2 className="font-semibold">Real AI Data Analyst</h2>
                   {currentDataset && (
                     <span className="text-sm text-gray-600">
                       analyzing "{currentDataset.name}"
@@ -448,12 +731,11 @@ What specific aspect would you like me to explore?`;
                 </div>
               </div>
 
-              {/* Chat Messages */}
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 {!currentDataset ? (
                   <div className="text-center py-8">
                     <MessageCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                    <p className="text-gray-500">Upload a dataset to start chatting with AI</p>
+                    <p className="text-gray-500">Upload a dataset to start chatting with Real AI</p>
                   </div>
                 ) : (
                   <>
@@ -467,6 +749,8 @@ What specific aspect would you like me to explore?`;
                         <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
                           message.type === 'user' 
                             ? 'bg-blue-600 text-white' 
+                            : message.type === 'error'
+                            ? 'bg-red-50 text-red-800 border border-red-200'
                             : 'bg-gray-100 text-gray-900'
                         }`}>
                           <p className="whitespace-pre-wrap text-sm">{message.content}</p>
@@ -490,7 +774,6 @@ What specific aspect would you like me to explore?`;
                 )}
               </div>
 
-              {/* Chat Input */}
               <div className="p-4 border-t">
                 <div className="flex space-x-2">
                   <input
@@ -498,7 +781,7 @@ What specific aspect would you like me to explore?`;
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && handleChatSubmit()}
-                    placeholder={currentDataset ? "Ask about your data..." : "Upload data first to chat"}
+                    placeholder={currentDataset ? "Ask about your data for real AI analysis..." : "Upload data first to chat"}
                     disabled={!currentDataset || isChatLoading}
                     className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
                   />
@@ -520,24 +803,23 @@ What specific aspect would you like me to explore?`;
           <div className="mt-8 text-center">
             <div className="bg-white rounded-lg shadow p-8 max-w-2xl mx-auto">
               <h2 className="text-2xl font-bold text-gray-900 mb-4">
-                Welcome to InsightFlow AI
+                Welcome to InsightFlow AI with Real AI
               </h2>
               <p className="text-gray-600 mb-6">
-                Upload your first dataset and start chatting with our AI data analyst. 
-                Get intelligent insights, analysis, and visualizations instantly.
+                Upload your dataset to automatically generate intelligent visualizations and chat with real Claude AI about your data.
               </p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                 <div className="p-4 bg-blue-50 rounded-lg">
-                  <h3 className="font-semibold text-blue-900 mb-2">1. Upload Data</h3>
-                  <p className="text-blue-700">Drop CSV or JSON files to get started</p>
+                  <h3 className="font-semibold text-blue-900 mb-2">📊 Auto Visualizations</h3>
+                  <p className="text-blue-700">Smart charts generated automatically</p>
                 </div>
                 <div className="p-4 bg-green-50 rounded-lg">
-                  <h3 className="font-semibold text-green-900 mb-2">2. AI Analysis</h3>
-                  <p className="text-green-700">Our AI analyzes patterns and structure</p>
+                  <h3 className="font-semibold text-green-900 mb-2">🤖 Real AI Analysis</h3>
+                  <p className="text-green-700">Genuine Claude AI insights</p>
                 </div>
                 <div className="p-4 bg-purple-50 rounded-lg">
-                  <h3 className="font-semibold text-purple-900 mb-2">3. Chat & Insights</h3>
-                  <p className="text-purple-700">Ask questions and get smart answers</p>
+                  <h3 className="font-semibold text-purple-900 mb-2">📥 Data Export</h3>
+                  <p className="text-purple-700">Download processed data and charts</p>
                 </div>
               </div>
             </div>
